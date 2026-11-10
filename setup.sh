@@ -2,8 +2,16 @@
 # One-time setup (needs the internet): the SGLang image and Qwen3.8 weights for Step 2, the sandbox image, Qwen3-0.6B
 # for the engines, four sabotaged copies of mini-sglang in env1-env4, and the untouched original that ./verify.sh
 # compares against. Rerunning keeps existing env directories; delete one (rm -rf env1) to get a fresh copy.
+# Output is copied to setup.log, and .setup-done appears once everything is in place.
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# One setup at a time: the launchable starts one at first boot, and a second run would race it.
+exec 9> .setup.lock
+flock -n 9 || { echo "setup is already running; follow it with: tail -f $PWD/setup.log" >&2; exit 1; }
+rm -f .setup-done
+exec > >(tee setup.log) 2>&1
+trap '[ -e .setup-done ] || echo "setup FAILED: see the error above, fix it and rerun ./setup.sh"' EXIT
 
 docker pull lmsysorg/sglang:v0.5.22-runtime
 docker build -t workshop-env --build-arg UID=$(id -u) --build-arg GID=$(id -g) image
@@ -32,4 +40,5 @@ copy env2 cuda-graph
 copy env3 radix
 copy env4 overlap
 rm -rf $SRC
+touch .setup-done
 echo "setup done: env1 env2 env3 env4"

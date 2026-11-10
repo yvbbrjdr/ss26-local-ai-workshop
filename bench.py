@@ -17,6 +17,7 @@ MODEL = "/models/Qwen3-0.6B"
 MEMORY_RATIO = 0.25  # the GPU is shared with SGLang
 TESTS = ["check", "latency", "offline", "prefix", "long_prompt"]
 TOLERANCE = 0.05
+NEAR_MISS = 0.15  # a timing that fails by less than this may be noise from sharing the GPU, so say so
 METRICS = [  # test, key, label, higher is better
     ("latency", "decode_bs1_ms", "decode step, batch 1 (ms)", False),
     ("latency", "decode_bs8_ms", "decode step, batch 8 (ms)", False),
@@ -149,6 +150,7 @@ def compare(original_dir: str, engine_dir: str, *tests: str) -> int:
     a, b = load(original_dir), load(engine_dir)
     name = os.path.basename(os.path.normpath(engine_dir))
     problems = []
+    near_miss = False
     print(f"{'':36s} {'original':>10s} {name:>10s}")
     if "check" in tests and ("outputs" not in a or "outputs" not in b):
         problems.append("the output check did not run")
@@ -170,9 +172,16 @@ def compare(original_dir: str, engine_dir: str, *tests: str) -> int:
         print(f"{label:36s} {a[key]:10.2f} {b[key]:10.2f} {ratio:6.2f}x{'  <- worse' if worse else ''}")
         if worse:
             problems.append(f"{label} at {ratio:.2f}x")
+            near_miss = near_miss or (test != "long_prompt" and abs(ratio - 1) < NEAR_MISS)
     print()
     if problems:
         print(f"NOT RESTORED: {'; '.join(problems)}")
+        if near_miss:
+            print(
+                "A timing is only slightly behind. If you believe the engine is repaired, this can be noise: the GPU "
+                "is shared with SGLang. Make sure your agent is idle and run ./verify.sh again; if the original was "
+                "measured while the agent was busy, delete results/original first."
+            )
         return 1
     print(f"RESTORED: {name} gives the original's outputs and is within {TOLERANCE:.0%} of it on every benchmark")
     return 0

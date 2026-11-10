@@ -32,6 +32,11 @@ _Your journey starts now._
    cd ss26-local-ai-workshop
    ./setup.sh
    ```
+6. The instance is ready before its setup is: the launchable keeps downloading the images and models in the background. Wait for it to finish before you go on:
+   ```bash
+   tail -f setup.log
+   ```
+   Setup is finished when the log ends with `setup done: env1 env2 env3 env4` and the file `.setup-done` exists (press `Ctrl+C` to leave `tail`). If the log ends with `setup FAILED`, fix the error it shows and run `./setup.sh` again. Running `./setup.sh` while setup is still going is harmless: it tells you so and exits.
 
 ### Step 2: Launch Qwen3.8-27B with SGLang
 
@@ -86,6 +91,12 @@ _Your journey starts now._
    When the answer is being generated, you can see the generation speed in the terminal. Note the relationship between the generation speed and accept length.
 5. After you finish, you can detach from the tmux session by pressing `Ctrl+B D`.
 
+If you ever restart the SGLang server while a sandbox from Step 3 is open, the new server is no longer connected to the sandboxes and your agent loses its model. Reconnect it once the server is back up:
+
+```bash
+docker network connect workshop-net sglang
+```
+
 ### Step 3: Repair the Inference Engines
 
 _Our story continues._
@@ -127,7 +138,8 @@ The incident response team holds a sealed copy of the original engine. You canno
    ```bash
    ./verify.sh env1
    ```
-   Look for **RESTORED**. If it is not there yet, `./start.sh env1` takes you back into the sandbox (it stays up, and so does your agent's work); show your agent the benchmarks that are still behind and keep going.
+   Look for **RESTORED**. If it is not there yet, `./start.sh env1` takes you back into the sandbox (it stays up, and so does your agent's work); show your agent the benchmarks that are still behind and keep going.  
+   The benchmarks share the GPU with your Qwen3.8-27B, so let your agent finish (or quit `omp`) before you run `./verify.sh`: a busy model slows the timings down and can turn a good repair into **NOT RESTORED**. If a timing misses by a small margin, run `./verify.sh` again.
 
 If a repair goes badly wrong, pull a fresh copy of the compromised engine out of quarantine and start over: `docker rm -f workshop-env1 && rm -rf env1 && ./setup.sh`.
 

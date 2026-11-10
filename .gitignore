@@ -7,4 +7,7 @@
 /models/
 /results/
 /.cache/
+/.setup.lock
+/.setup-done
+/setup.log
 __pycache__/
