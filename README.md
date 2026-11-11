@@ -1,5 +1,7 @@
 # SGLang Summit Workshop by LMSYS: Local AI Coding Lab
 
+This is the hands-on guide for the [Local AI Coding Lab at SGLang Summit 2026](https://luma.com/yac43hxy). See the event page for the schedule and venue details.
+
 ## Lore
 
 You are a Member of Technical Staff at **FastInference AI, Inc**. As the name suggests, your company provides high-performance LLM inference services, which is powered by Mini-SGLang.
@@ -26,13 +28,7 @@ _Your journey starts now._
    ```bash
    cd ss26-local-ai-workshop
    ```
-   If the directory is not found, you can manually setup the workshop directory to the instance:
-   ```bash
-   git clone https://github.com/yvbbrjdr/ss26-local-ai-workshop
-   cd ss26-local-ai-workshop
-   ./setup.sh
-   ```
-6. The instance is ready before its setup is: the launchable keeps downloading the images and models in the background. Wait for it to finish before you go on:
+6. Even after you can connect, the instance might still be setting up: the launchable may still be downloading images and models in the background. Make sure setup has finished before moving on:
    ```bash
    tail -f setup.log
    ```
@@ -44,7 +40,7 @@ _Your journey starts now._
    ```bash
    tmux
    ```
-2. Start the SGLang server:
+2. Start the SGLang server. If you are curious where this command comes from, it is adapted from the [SGLang Cookbook entry for Qwen3.8-27B](https://docs.sglang.io/cookbook/autoregressive/Qwen/Qwen3.8-27B#hw=rtx6000&variant=default&quant=nvfp4-nvidia&nodes=single&spec=dspark&tier=low-latency&ssmDtype=float32). The cookbook gives the optimal command for serving a model with SGLang on your hardware and configuration of choice.
    ```bash
    docker run --gpus all \
      --name sglang --rm \
@@ -88,14 +84,10 @@ _Your journey starts now._
      -H "Content-Type: application/json" \
      -d '{"messages": [{"role": "user", "content": "Solve for the general nontrivial rational solution of the equation x^y = y^x"}], "stream": true}'
    ```
-   When the answer is being generated, you can see the generation speed in the terminal. Note the relationship between the generation speed and accept length.
+   When the answer is being generated, you can see the generation speed in the terminal. Note the relationship between the generation speed and accept length. You can stop the generation by pressing `Ctrl+C` on the `curl` command.
 5. After you finish, you can detach from the tmux session by pressing `Ctrl+B D`.
 
-If you ever restart the SGLang server while a sandbox from Step 3 is open, the new server is no longer connected to the sandboxes and your agent loses its model. Reconnect it once the server is back up:
-
-```bash
-docker network connect workshop-net sglang
-```
+If you ever restart the SGLang server, see [I restarted the SGLang server or the instance](#i-restarted-the-sglang-server-or-the-instance-and-my-agent-cannot-reach-the-model) in the FAQ.
 
 ### Step 3: Repair the Inference Engines
 
@@ -116,13 +108,20 @@ Your forensics team has already worked out what is broken where:
 
 Each deployment is sealed in its own sandbox, with a GPU and a small test model, **Qwen3-0.6B**, but no way out to the Internet. The only line still open leads to your Qwen3.8-27B, at `http://sglang:30000`.
 
+> **Two models, two inference engines.** Keep them apart in your head:
+>
+> - **SGLang serving Qwen3.8-27B** (Step 2) is the brain of your coding agent. `omp` sends every request to it. You never modify it; it just has to stay running.
+> - **Mini-SGLang running Qwen3-0.6B** is the patient. `env1` to `env4` are the sabotaged copies of Mini-SGLang's source code, and Qwen3-0.6B is the small model they load when `./verify.sh` benchmarks them. Your agent edits this code; it does not use this model to think.
+>
+> Both share the same GPU, which is why `./verify.sh` timings are best taken while your agent is idle.
+
 The incident response team holds a sealed copy of the original engine. You cannot read it or restore from it, but they will benchmark any engine against it, side by side. An engine goes back into production only when its outputs match the original's token for token and it is within 5% of the original on every benchmark.
 
 1. First, see the damage for yourself. Hand the compromised engine to the incident response team:
    ```bash
    ./verify.sh env1
    ```
-   Its outputs still match, but the table flags the benchmarks where it falls behind the original with `<- worse`, and the verdict is **NOT RESTORED**. The first run also benchmarks the sealed original, so it takes about twice as long.
+   The table flags the benchmarks where it falls behind the original with `<- worse`, and the verdict is **NOT RESTORED**. The first run also benchmarks the sealed original, so it takes about twice as long.
 2. Enter the quarantine zone for the engine:
    ```bash
    ./start.sh env1
@@ -141,7 +140,7 @@ The incident response team holds a sealed copy of the original engine. You canno
    Look for **RESTORED**. If it is not there yet, `./start.sh env1` takes you back into the sandbox (it stays up, and so does your agent's work); show your agent the benchmarks that are still behind and keep going.  
    The benchmarks share the GPU with your Qwen3.8-27B, so let your agent finish (or quit `omp`) before you run `./verify.sh`: a busy model slows the timings down and can turn a good repair into **NOT RESTORED**. If a timing misses by a small margin, run `./verify.sh` again.
 
-If a repair goes badly wrong, pull a fresh copy of the compromised engine out of quarantine and start over: `docker rm -f workshop-env1 && rm -rf env1 && ./setup.sh`.
+If a repair goes badly wrong, pull a fresh copy of the compromised engine out of quarantine and start over: `docker rm -f workshop-env1 && rm -rf env1 && ./setup.sh`. This deletes your agent's edits; see [the FAQ](#how-do-i-start-an-exercise-over-without-losing-my-work) to save them first.
 
 _FastInference AI is counting on you. Bring production back online._
 
@@ -159,6 +158,57 @@ mkdir playground
 ```
 
 It is the same kind of sandbox as the engines: your files are in `/workspace` (the `playground` directory on the instance), with Python, PyTorch and the GPU available. There is still no Internet, so your agent has to build things itself instead of installing packages.
+
+## FAQ
+
+### How do I know the instance is ready?
+
+The instance boots before it is set up: the launchable keeps pulling images and downloading models in the background. Setup is finished when `setup.log` ends with `setup done: env1 env2 env3 env4` and the file `.setup-done` exists:
+
+```bash
+tail -n 5 setup.log
+ls .setup-done
+```
+
+If the log ends with `setup FAILED`, fix the error shown above it and run `./setup.sh` again. If it says `setup is already running`, the first run is still going; follow it with `tail -f setup.log`. SGLang (Step 2) is ready only once it prints `The server is fired up and ready to roll!`, and loading the model can take several minutes.
+
+### `omp` asks me to log in to a provider. Do I need an account?
+
+No. Press `Esc` to skip the login. `omp` is already configured to use your local Qwen3.8-27B at `http://sglang:30000` for everything, so no cloud account or API key is needed, and the sandbox has no Internet access to reach a provider anyway. If `omp` reports that it cannot connect to the model, check that SGLang is still running (Step 2) and see [I restarted the SGLang server or the instance](#i-restarted-the-sglang-server-or-the-instance-and-my-agent-cannot-reach-the-model).
+
+### Why can't the sandbox reach the Internet?
+
+That is by design: the sandboxes are on an internal Docker network whose only other member is the SGLang server. `pip install`, `git clone`, `curl` to outside sites and web searches will all fail, and there is no `git` or `pip` in the sandbox. Everything the repair needs is already there: the engine's source in `/workspace`, Python with Mini-SGLang's dependencies, the GPU, and Qwen3-0.6B at `/models/Qwen3-0.6B`. If your agent tries to download something, tell it to work offline with what is installed.
+
+### I restarted the SGLang server or the instance, and my agent cannot reach the model.
+
+The sandboxes reach the model over a private Docker network, `workshop-net`. Each time the SGLang container starts, it starts outside that network, so the agent loses its model until you reconnect it:
+
+1. Make sure SGLang is running. Restarting the instance removes the container, so if `docker ps` does not list `sglang`, redo Step 2 in a new `tmux` session. Wait for `The server is fired up and ready to roll!`.
+2. On the instance (not inside the sandbox), run `./start.sh env1`. It reconnects SGLang to the network and takes you back into the sandbox. If you only want to reconnect, without opening another sandbox shell, run `docker network connect workshop-net sglang` instead.
+
+Your sandbox and the agent's edits in `env1` survive both kinds of restart.
+
+### `./verify.sh` says NOT RESTORED, but my fix looks right.
+
+First check whether the outputs match and how far the flagged benchmarks are behind. If a benchmark misses the 5% bar by only a little, it is usually timing noise rather than a bad fix:
+
+- The benchmarks share the GPU with Qwen3.8-27B. Let your agent finish, or quit `omp`, before running `./verify.sh`; a model that is busy generating slows the engine down.
+- Run `./verify.sh env1` again. Each run measures the engine afresh.
+- If the original's numbers look off (for example, they were measured while the GPU was busy), measure them again with `rm -rf results/original` and rerun `./verify.sh env1`.
+
+If a benchmark is still far behind after that, the optimization is still broken: go back in with `./start.sh env1` and show your agent the numbers.
+
+### How do I start an exercise over without losing my work?
+
+Your agent's edits live in the engine's directory on the instance (`env1` is `/workspace` inside the sandbox), and resetting deletes it. Save a copy first, then reset:
+
+```bash
+cp -r env1 env1-attempt1
+docker rm -f workshop-env1 && rm -rf env1 && ./setup.sh
+```
+
+`./setup.sh` keeps every engine directory that still exists, so only `env1` is replaced. You can compare an old attempt with the fresh copy using `diff -ru env1 env1-attempt1`, or put it back with `rm -rf env1 && mv env1-attempt1 env1`.
 
 ## Answer Key: Mission Briefings
 
